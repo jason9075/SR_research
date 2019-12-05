@@ -6,11 +6,11 @@ import tensorflow as tf
 
 from utils import preprocessLR, preprocess, random_flip, deprocess, save_images
 
-BATCH_SIZE = 2
+BATCH_SIZE = 32
 INPUT_SIZE = (56, 56)
 CAPACITY = 4000
-THREAD = 1
-EPOCH = 5
+THREAD = 4
+EPOCH = 100
 
 
 def main():
@@ -118,9 +118,10 @@ def main():
             }
 
             results = sess.run(fetches, feed_dict={is_train: True})
-            save_images(results['outputs_node'][0], filename='step_%d.jpg' % results['global_step'])
             print(results['gen_loss'])
             print(results['test'][0, 100:105, 100:105, 0])
+            if results['global_step'] % 1000 == 0:
+                save_images(results['outputs_node'][0], filename='step_%d.jpg' % results['global_step'])
 
         print('Optimization done!!!!!!!!!!!!')
 
