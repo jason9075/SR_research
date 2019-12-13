@@ -1,3 +1,5 @@
+import os
+
 import cv2
 import glob
 import math
@@ -7,7 +9,7 @@ import tensorflow as tf
 import numpy as np
 from utils import preprocessLR, preprocess, random_flip, deprocess, save_images
 
-BATCH_SIZE = 32
+BATCH_SIZE = 20
 INPUT_SIZE = (56, 56)
 CAPACITY = 4000
 THREAD = 4
@@ -15,11 +17,18 @@ EPOCH = 500
 SAVER_MAX_KEEP = 10
 
 SHOW_INFO_INTERVAL = 100
-SAVE_MODEL_INTERVAL = 200
-VALIDATE_INTERVAL = 200
+SAVE_MODEL_INTERVAL = 1000
+VALIDATE_INTERVAL = 500
+
+
+def purge():
+    for f in glob.glob('valid_output/*.jpg'):
+        os.remove(f)
 
 
 def main():
+    purge()
+
     global_step = tf.train.get_or_create_global_step()
     input_node = tf.placeholder(
         name='input_images',
