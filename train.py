@@ -1,34 +1,49 @@
+import cv2
 import glob
 import math
 
 from backend.arch.resnet import Generator
 import tensorflow as tf
-
+import numpy as np
 from utils import preprocessLR, preprocess, random_flip, deprocess, save_images
 
 BATCH_SIZE = 32
 INPUT_SIZE = (56, 56)
 CAPACITY = 4000
 THREAD = 4
-EPOCH = 100
+EPOCH = 500
+SAVER_MAX_KEEP = 10
+
+SHOW_INFO_INTERVAL = 100
+SAVE_MODEL_INTERVAL = 200
+VALIDATE_INTERVAL = 200
 
 
 def main():
     global_step = tf.train.get_or_create_global_step()
-    # input_node = tf.placeholder(
-    #     name='input_images',
-    #     shape=[1, None, None, 3],
-    #     dtype=tf.float32)
-    # target_node = tf.placeholder(
-    #     name='target_images',
-    #     shape=[1, None, None, 3],
-    #     dtype=tf.float32)
+    input_node = tf.placeholder(
+        name='input_images',
+        shape=[1, None, None, 3],
+        dtype=tf.float32)
+    target_node = tf.placeholder(
+        name='target_images',
+        shape=[1, None, None, 3],
+        dtype=tf.float32)
     is_train = tf.placeholder_with_default(False, (), name='is_training')
 
     lr_image_list = glob.glob('dataset/lr/*.jpg')
     hr_image_list = glob.glob('dataset/hr/*.jpg')
     lr_image_list_tensor = tf.convert_to_tensor(lr_image_list, dtype=tf.string)
     hr_image_list_tensor = tf.convert_to_tensor(hr_image_list, dtype=tf.string)
+
+    lr_valid_image = cv2.imread('dataset/lr_valid/jason.jpg')
+    lr_valid_image = cv2.cvtColor(lr_valid_image, cv2.COLOR_BGR2RGB)
+    lr_valid_image = np.expand_dims(lr_valid_image, axis=0)
+    lr_valid_image = lr_valid_image / 255
+    hr_valid_image = cv2.imread('dataset/hr_valid/jason.jpg')
+    hr_valid_image = cv2.cvtColor(hr_valid_image, cv2.COLOR_BGR2RGB)
+    hr_valid_image = (hr_valid_image / 255) * 2 - 1
+    hr_valid_image = np.expand_dims(hr_valid_image, axis=0)
 
     with tf.variable_scope('load_image'):
         output = tf.train.slice_input_producer([lr_image_list_tensor, hr_image_list_tensor],
@@ -72,13 +87,21 @@ def main():
     inputs_batch.set_shape([BATCH_SIZE, INPUT_SIZE[0], INPUT_SIZE[1], 3])
     targets_batch.set_shape([BATCH_SIZE, INPUT_SIZE[0] * 4, INPUT_SIZE[1] * 4, 3])
 
-    net = Generator(inputs_batch, is_train)
-    gen_output = net.arch_output
-    gen_output.set_shape([BATCH_SIZE, INPUT_SIZE[0] * 4, INPUT_SIZE[1] * 4, 3])
+    with tf.name_scope('train'):
+        net_train = Generator(inputs_batch, is_train)
+        gen_output = net_train.arch_output
+        gen_output.set_shape([BATCH_SIZE, INPUT_SIZE[0] * 4, INPUT_SIZE[1] * 4, 3])
 
-    outputs = deprocess(gen_output)
-    converted_outputs = tf.image.convert_image_dtype(outputs, dtype=tf.uint8, saturate=True)
-    outputs_node = tf.map_fn(tf.image.encode_png, converted_outputs, dtype=tf.string, name='output_pngs')
+    with tf.name_scope('valid'):
+        net_valid = Generator(input_node, tf.constant(False), reuse=True)
+        gen_valid = net_valid.arch_output
+        gen_valid.set_shape([1, INPUT_SIZE[0] * 4, INPUT_SIZE[1] * 4, 3])
+        gen_valid = deprocess(gen_valid)
+
+        valid_diff = gen_valid - target_node
+        valid_loss = tf.reduce_mean(tf.reduce_sum(tf.square(valid_diff), axis=[3]))
+        converted_outputs = tf.image.convert_image_dtype(gen_valid, dtype=tf.uint8, saturate=True)
+        outputs_node = tf.map_fn(tf.image.encode_png, converted_outputs, dtype=tf.string, name='output_pngs')
 
     extracted_feature_gen = gen_output
     extracted_feature_target = targets_batch
@@ -103,27 +126,47 @@ def main():
     config = tf.ConfigProto()
     config.gpu_options.allow_growth = True
 
+    saver = tf.train.Saver(max_to_keep=SAVER_MAX_KEEP)
+
     sv = tf.train.Supervisor(logdir='./save', save_summaries_secs=0, saver=None)
     with sv.managed_session(config=config) as sess:
         # Performing the training
         total_step = EPOCH * steps_per_epoch
-        print('Optimization starts!!!')
-        for _ in range(total_step):
+        for step in range(1, total_step):
             fetches = {
                 "global_step": global_step,
                 "train": gen_train,
-                "gen_loss": gen_loss,
-                "test": gen_output,
-                "outputs_node": outputs_node
+                "gen_output": gen_output,
+                "gen_loss": gen_loss
             }
 
             results = sess.run(fetches, feed_dict={is_train: True})
-            print(results['gen_loss'])
-            print(results['test'][0, 100:105, 100:105, 0])
-            if results['global_step'] % 1000 == 0:
-                save_images(results['outputs_node'][0], filename='step_%d.jpg' % results['global_step'])
 
-        print('Optimization done!!!!!!!!!!!!')
+            if step % SHOW_INFO_INTERVAL == 0:
+                loss = results['gen_loss']
+                print('step: %d, loss:%.2f' % (step, loss))
+
+            if step % VALIDATE_INTERVAL == 0:
+                fetches = {
+                    "valid_loss": valid_loss,
+                    "outputs_node": outputs_node,
+                    "gen_valid": gen_valid
+                }
+                feed_dict = {
+                    is_train: False,
+                    input_node: lr_valid_image,
+                    target_node: hr_valid_image,
+                }
+                val_results = sess.run(fetches, feed_dict=feed_dict)
+                val_loss = val_results['valid_loss']
+                print('valid loss: %.2f' % val_loss)
+                save_images(val_results['outputs_node'][0],
+                            filename='step_%d_loss_%.2f.jpg' % (step, val_loss))
+
+            if step % SAVE_MODEL_INTERVAL == 0:
+                print('saving ckpt.')
+                filename = f'step_{step}.ckpt'
+                saver.save(sess, f'model_out/{filename}')
 
 
 if __name__ == '__main__':

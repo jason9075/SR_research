@@ -33,11 +33,7 @@ def deprocessLR(image):
         return tf.identity(image)
 
 
-def save_images(contents, filename='test.jpg'):
-    image_dir = os.path.join("images")
-    if not os.path.exists(image_dir):
-        os.makedirs(image_dir)
-
+def save_images(contents, image_dir='valid_output', filename='test.jpg'):
     out_path = os.path.join(image_dir, filename)
     with open(out_path, "wb") as f:
         f.write(contents)

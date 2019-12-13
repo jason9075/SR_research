@@ -3,12 +3,12 @@ from backend.layers import *
 
 
 class Generator(BaseNet):
-    def __init__(self, input_layer, is_train):
+    def __init__(self, input_layer, is_train, reuse=False):
         super().__init__(input_layer, is_train)  # input = n
         num_res_block = 16
         ch = 64
         output_channel = 3
-        with tf.variable_scope('generator'):
+        with tf.variable_scope('generator', reuse=reuse):
             with tf.variable_scope('input_stage'):
                 net = tf.layers.conv2d(input_layer, ch, 9, strides=1, padding='same', kernel_initializer=WEIGHT_INIT,
                                        name='conv')

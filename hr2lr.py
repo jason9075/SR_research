@@ -17,7 +17,7 @@ def main():
                 continue
 
         img = cv2.imread(hr_path)
-        img = cv2.blur(img, (5, 5))
+        img = cv2.blur(img, (10, 10))
         img = cv2.resize(img, None, fx=SCALE, fy=SCALE)
         cv2.imwrite(f'dataset/lr/{filename}', img)
 

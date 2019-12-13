@@ -41,11 +41,17 @@ __pycache__/
 save/*
 !save/.keep
 
-train_output/*
-!train_output/.keep
+valid/*
+!valid/.keep
 
 dataset/hr/*
 !dataset/hr/.keep
 
 dataset/lr/*
 !dataset/lr/.keep
+
+valid_output/*
+!valid_output/.keep
+
+model_out/*
+!model_out/.keep
