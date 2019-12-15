@@ -1,15 +1,14 @@
+import glob
 import os
+import random
 
 import cv2
-import glob
-import math
+import numpy as np
+import tensorflow as tf
 
 from backend.arch.resnet import Generator
-import tensorflow as tf
-import numpy as np
-
 from hr2lr import gen_dataset
-from utils import preprocessLR, preprocess, random_flip, deprocess, save_images
+from utils import preprocessLR, preprocess, deprocess, save_images
 
 BATCH_SIZE = 20
 INPUT_SIZE = (56, 56)
@@ -18,7 +17,7 @@ THREAD = 4
 EPOCH = 500
 SAVER_MAX_KEEP = 10
 
-SHOW_INFO_INTERVAL = 100
+SHOW_INFO_INTERVAL = 1
 SAVE_MODEL_INTERVAL = 1000
 VALIDATE_INTERVAL = 500
 
@@ -26,6 +25,24 @@ VALIDATE_INTERVAL = 500
 def purge():
     for f in glob.glob('valid_output/*.jpg'):
         os.remove(f)
+
+
+def _parse_lr(image_path):
+    file_contents = tf.read_file(image_path)
+    image = tf.image.decode_image(file_contents, channels=3)
+    image = tf.image.convert_image_dtype(image, dtype=tf.float32)
+    image.set_shape((INPUT_SIZE[0], INPUT_SIZE[0], 3))
+
+    return image
+
+
+def _parse_hr(image_path):
+    file_contents = tf.read_file(image_path)
+    image = tf.image.decode_image(file_contents, channels=3)
+    image = tf.image.convert_image_dtype(image, dtype=tf.float32)
+    image.set_shape((INPUT_SIZE[0] * 4, INPUT_SIZE[0] * 4, 3))
+
+    return image
 
 
 def main():
@@ -41,11 +58,8 @@ def main():
         shape=[1, None, None, 3],
         dtype=tf.float32)
     is_train = tf.placeholder_with_default(False, (), name='is_training')
-
-    lr_image_list = glob.glob('dataset/lr/*.jpg')
-    hr_image_list = glob.glob('dataset/hr/*.jpg')
-    lr_image_list_tensor = tf.convert_to_tensor(lr_image_list, dtype=tf.string)
-    hr_image_list_tensor = tf.convert_to_tensor(hr_image_list, dtype=tf.string)
+    lr_image_paths = tf.placeholder(tf.string, shape=(None,), name='lr_image_paths')
+    hr_image_paths = tf.placeholder(tf.string, shape=(None,), name='hr_image_paths')
 
     lr_valid_image = cv2.imread('dataset/lr_valid/jason.jpg')
     lr_valid_image = cv2.cvtColor(lr_valid_image, cv2.COLOR_BGR2RGB)
@@ -57,46 +71,13 @@ def main():
     hr_valid_image = np.expand_dims(hr_valid_image, axis=0)
 
     with tf.variable_scope('load_image'):
-        output = tf.train.slice_input_producer([lr_image_list_tensor, hr_image_list_tensor],
-                                               shuffle=False, capacity=CAPACITY)
 
-        image_lr = tf.read_file(output[0])
-        image_hr = tf.read_file(output[1])
-        input_image_lr = tf.image.decode_png(image_lr, channels=3)
-        input_image_hr = tf.image.decode_png(image_hr, channels=3)
-        input_image_lr = tf.image.convert_image_dtype(input_image_lr, dtype=tf.float32)
-        input_image_hr = tf.image.convert_image_dtype(input_image_hr, dtype=tf.float32)
-
-        assertion = tf.assert_equal(tf.shape(input_image_lr)[2], 3, message="image does not have 3 channels")
-        with tf.control_dependencies([assertion]):
-            input_image_lr = tf.identity(input_image_lr)
-            input_image_hr = tf.identity(input_image_hr)
+        input_image_lr = tf.map_fn(_parse_lr, lr_image_paths, dtype=tf.float32)
+        input_image_hr = tf.map_fn(_parse_hr, hr_image_paths, dtype=tf.float32)
 
         # Normalize the low resolution image to [0, 1], high resolution to [-1, 1]
-        a_image = preprocessLR(input_image_lr)
-        b_image = preprocess(input_image_hr)
-
-        inputs, targets = [a_image, b_image]
-
-    with tf.name_scope('data_preprocessing'):
-        with tf.variable_scope('random_flip'):
-            # Produce the decision of random flip
-            decision = tf.random_uniform([], 0, 1, dtype=tf.float32)
-
-            input_images = random_flip(inputs, decision)
-            target_images = random_flip(targets, decision)
-
-    input_images.set_shape([INPUT_SIZE[0], INPUT_SIZE[1], 3])
-    target_images.set_shape([INPUT_SIZE[0] * 4, INPUT_SIZE[1] * 4, 3])
-
-    paths_lr_batch, paths_hr_batch, inputs_batch, targets_batch = tf.train.shuffle_batch(
-        [output[0], output[1], input_images, target_images],
-        batch_size=BATCH_SIZE, capacity=CAPACITY + 4 * BATCH_SIZE,
-        min_after_dequeue=CAPACITY, num_threads=THREAD)
-
-    steps_per_epoch = int(math.ceil(len(lr_image_list) / BATCH_SIZE))
-    inputs_batch.set_shape([BATCH_SIZE, INPUT_SIZE[0], INPUT_SIZE[1], 3])
-    targets_batch.set_shape([BATCH_SIZE, INPUT_SIZE[0] * 4, INPUT_SIZE[1] * 4, 3])
+        inputs_batch = preprocessLR(input_image_lr)
+        targets_batch = preprocess(input_image_hr)
 
     with tf.name_scope('train'):
         net_train = Generator(inputs_batch, is_train)
@@ -145,15 +126,30 @@ def main():
         # Performing the training
         for epoch_idx in range(0, EPOCH):
             gen_dataset()
-            for epoch_step in range(0, steps_per_epoch):
+            lr_paths = glob.glob('dataset/lr/*.jpg')
+            hr_paths = glob.glob('dataset/hr/*.jpg')
+            steps_per_epoch = len(lr_paths) // BATCH_SIZE
+            all_paths = list(zip(lr_paths, hr_paths))
+            lr_paths = [lr for lr, _ in all_paths]
+            hr_paths = [hr for _, hr in all_paths]
+            random.shuffle(all_paths)
+            epoch_step = 0
+            for idx in range(0, len(lr_paths), BATCH_SIZE):
+                lr_batch = lr_paths[idx: idx + BATCH_SIZE]
+                hr_batch = hr_paths[idx: idx + BATCH_SIZE]
                 fetches = {
                     "global_step": global_step,
                     "train": gen_train,
                     "gen_output": gen_output,
                     "gen_loss": gen_loss
                 }
+                feed_dict = {
+                    is_train: True,
+                    lr_image_paths: lr_batch,
+                    hr_image_paths: hr_batch,
+                }
 
-                results = sess.run(fetches, feed_dict={is_train: True})
+                results = sess.run(fetches, feed_dict=feed_dict)
 
                 if step % SHOW_INFO_INTERVAL == 0:
                     loss = results['gen_loss']
@@ -181,6 +177,7 @@ def main():
                     filename = f'step_{step}.ckpt'
                     saver.save(sess, f'model_out/{filename}')
 
+                epoch_step += 1
                 step += 1
 
 
