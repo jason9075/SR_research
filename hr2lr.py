@@ -12,6 +12,7 @@ def _aug_process(img):
     img = contrast(img)
     img = bright(img)
     img = saturation(img)
+    img = flip(img)
 
     return img
 
@@ -46,6 +47,13 @@ def saturation(img):
     return img
 
 
+def flip(img):
+    value = random.randint(0, 1)
+    if value == 0:
+        img = cv2.flip(img, 1)
+    return img
+
+
 def gen_dataset():
     origin_list = glob.glob('dataset/origin/*.jpg')
 
@@ -71,7 +79,6 @@ def gen_dataset():
         cv2.imwrite(f'dataset/lr/{filename}', img)
 
     print('processing done.')
-
 
 
 if __name__ == '__main__':
