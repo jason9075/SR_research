@@ -17,7 +17,7 @@ THREAD = 4
 EPOCH = 80
 SAVER_MAX_KEEP = 10
 
-SHOW_INFO_INTERVAL = 100
+SHOW_INFO_INTERVAL = 1
 SAVE_MODEL_INTERVAL = 1000
 VALIDATE_INTERVAL = 500
 
@@ -134,7 +134,7 @@ def main():
             hr_paths = [hr for _, hr in all_paths]
             random.shuffle(all_paths)
             epoch_step = 0
-            for idx in range(0, len(lr_paths) - 1, BATCH_SIZE):
+            for idx in range(0, len(lr_paths) - BATCH_SIZE, BATCH_SIZE):
                 lr_batch = lr_paths[idx: idx + BATCH_SIZE]
                 hr_batch = hr_paths[idx: idx + BATCH_SIZE]
                 fetches = {
