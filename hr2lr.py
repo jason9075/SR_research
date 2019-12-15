@@ -55,6 +55,7 @@ def gen_dataset():
     for f in glob.glob(os.path.join('dataset/lr/*.jpg')):
         os.remove(f)
 
+    print('processing hr2lr.py')
     for origin_path in origin_list:
         filename = origin_path.split('/')[-1]
         img = cv2.imread(origin_path)
@@ -68,6 +69,9 @@ def gen_dataset():
 
         img = cv2.resize(img, None, fx=SCALE, fy=SCALE)
         cv2.imwrite(f'dataset/lr/{filename}', img)
+
+    print('processing done.')
+
 
 
 if __name__ == '__main__':
