@@ -7,6 +7,8 @@ import math
 from backend.arch.resnet import Generator
 import tensorflow as tf
 import numpy as np
+
+from hr2lr import gen_dataset
 from utils import preprocessLR, preprocess, random_flip, deprocess, save_images
 
 BATCH_SIZE = 20
@@ -138,44 +140,48 @@ def main():
     saver = tf.train.Saver(max_to_keep=SAVER_MAX_KEEP)
 
     sv = tf.train.Supervisor(logdir='./save', save_summaries_secs=0, saver=None)
+    step = 1
     with sv.managed_session(config=config) as sess:
         # Performing the training
-        total_step = EPOCH * steps_per_epoch
-        for step in range(1, total_step):
-            fetches = {
-                "global_step": global_step,
-                "train": gen_train,
-                "gen_output": gen_output,
-                "gen_loss": gen_loss
-            }
-
-            results = sess.run(fetches, feed_dict={is_train: True})
-
-            if step % SHOW_INFO_INTERVAL == 0:
-                loss = results['gen_loss']
-                print('step: %d, loss:%.2f' % (step, loss))
-
-            if step % VALIDATE_INTERVAL == 0:
+        for epoch_idx in range(0, EPOCH):
+            gen_dataset()
+            for epoch_step in range(0, steps_per_epoch):
                 fetches = {
-                    "valid_loss": valid_loss,
-                    "outputs_node": outputs_node,
-                    "gen_valid": gen_valid
+                    "global_step": global_step,
+                    "train": gen_train,
+                    "gen_output": gen_output,
+                    "gen_loss": gen_loss
                 }
-                feed_dict = {
-                    is_train: False,
-                    input_node: lr_valid_image,
-                    target_node: hr_valid_image,
-                }
-                val_results = sess.run(fetches, feed_dict=feed_dict)
-                val_loss = val_results['valid_loss']
-                print('valid loss: %.2f' % val_loss)
-                save_images(val_results['outputs_node'][0],
-                            filename='step_%d_loss_%.2f.jpg' % (step, val_loss))
 
-            if step % SAVE_MODEL_INTERVAL == 0:
-                print('saving ckpt.')
-                filename = f'step_{step}.ckpt'
-                saver.save(sess, f'model_out/{filename}')
+                results = sess.run(fetches, feed_dict={is_train: True})
+
+                if step % SHOW_INFO_INTERVAL == 0:
+                    loss = results['gen_loss']
+                    print('[%d][%d/%d] step:%d, loss:%.2f' % (epoch_idx, epoch_step, steps_per_epoch, step, loss))
+
+                if step % VALIDATE_INTERVAL == 0:
+                    fetches = {
+                        "valid_loss": valid_loss,
+                        "outputs_node": outputs_node,
+                        "gen_valid": gen_valid
+                    }
+                    feed_dict = {
+                        is_train: False,
+                        input_node: lr_valid_image,
+                        target_node: hr_valid_image,
+                    }
+                    val_results = sess.run(fetches, feed_dict=feed_dict)
+                    val_loss = val_results['valid_loss']
+                    print('valid loss: %.2f' % val_loss)
+                    save_images(val_results['outputs_node'][0],
+                                filename='step_%d_loss_%.2f.jpg' % (step, val_loss))
+
+                if step % SAVE_MODEL_INTERVAL == 0:
+                    print('saving ckpt.')
+                    filename = f'step_{step}.ckpt'
+                    saver.save(sess, f'model_out/{filename}')
+
+                step += 1
 
 
 if __name__ == '__main__':
