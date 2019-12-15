@@ -134,7 +134,7 @@ def main():
             hr_paths = [hr for _, hr in all_paths]
             random.shuffle(all_paths)
             epoch_step = 0
-            for idx in range(0, len(lr_paths), BATCH_SIZE):
+            for idx in range(0, len(lr_paths) - 1, BATCH_SIZE):
                 lr_batch = lr_paths[idx: idx + BATCH_SIZE]
                 hr_batch = hr_paths[idx: idx + BATCH_SIZE]
                 fetches = {
